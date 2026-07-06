@@ -94,7 +94,7 @@ gcc main.c -o conveyor.exe
 
 - [x] **Day 1** — struct/enum 정의 + main 루프 뼈대 + `status`/`exit`
 - [x] **Day 2** — 스캔 사이클 3단 분리 + IDLE→DETECT→TRANSFER 전이
-- [ ] **Day 3** — 정상 흐름 관통 (position_on→SETTLING→SORT→COMPLETE→reset→IDLE)
+- [x] **Day 3** — 정상 흐름 관통 (position_on→SETTLING→SORT→COMPLETE→reset→IDLE)
 - [ ] **Day 4** — 명령 요청/반영 분리 + settling 대기 정교화
 - [ ] **Day 5** — 타임아웃 에러 + error_code + ERROR 잠금
 - [ ] **Day 6** — emergency(전역 진입) + 출력 OFF + interlock + 자동 테스트 시나리오

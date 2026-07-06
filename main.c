@@ -20,12 +20,14 @@ typedef enum {
 typedef struct {
     ConveyorState state;   // 현재 상태
     int motor;             // 모터: 켜짐 1 / 꺼짐 0
+    int cylinder;          // 분류 실린더: 밀기 1 / 들임 0
     int error_code;        // 에러 코드: 0 = 정상
 //--- 입력(센서/버튼)-----------
     int product_sensor;   //입구제품감지 : 있음 1 /없음 0
-    int start_button;     //시작버튼 : 눌림 1 / 안눌림 0    
-
-
+    int start_button;     //시작버튼 : 눌림 1 / 안눌림 0
+    int position_sensor;  //위치센서 : 목표위치 도착 1 / 아직 0
+//--- 내부 기억(타이머 등) -----------
+    int settle_ticks;     //SETTLING 상태에서 몇 tick 기다렸나 (안정화 카운터)
 } Conveyor;
 
 /* ── 상태 번호를 읽기 좋은 글자로 바꿔주는 함수 ──
@@ -48,8 +50,8 @@ const char *state_name(ConveyorState s) {
  * 원본을 고치진 않고 읽기만 하지만, 큰 struct 복사를 피하려고
  * 포인터로 받는다. (제어 코드의 일반적인 습관) */
 void print_status(const Conveyor *c) {
-    printf("[STATUS] state=%s, motor=%d, error_code=%d\n",
-           state_name(c->state), c->motor, c->error_code);
+    printf("[STATUS] state=%s, motor=%d, cylinder=%d, error_code=%d\n",
+           state_name(c->state), c->motor, c->cylinder, c->error_code);
 }
 
 /* ── 스캔 사이클 1단계: 입력 읽기 ──
@@ -57,8 +59,8 @@ void print_status(const Conveyor *c) {
  * 우리는 시뮬레이터라 명령(product_on 등)으로 미리 켜둔 입력을 쓴다.
  * 지금은 구조만 — 읽었다고 알리기만 한다. */
 void read_inputs(Conveyor *c) {
-    printf("  [read]  product_sensor=%d, start_button=%d\n",
-           c->product_sensor, c->start_button);
+    printf("  [read]  product_sensor=%d, position_sensor=%d\n",
+           c->product_sensor, c->position_sensor);
 }
 
 /* ── 스캔 사이클 2단계: 판단(상태머신) ──
@@ -79,6 +81,28 @@ void run_state_machine(Conveyor *c) {
             printf("  [judge] 이송 시작 -> TRANSFER\n");
             break;
 
+        case STATE_TRANSFER:        // 지금 TRANSFER(이송)이면
+            if (c->position_sensor == 1) {   // 목표 위치 도착했다면
+                c->state = STATE_SETTLING;   // → SETTLING(안정화)로
+                printf("  [judge] 위치 도착 -> SETTLING\n");
+            }
+            break;
+
+        case STATE_SETTLING:        // 지금 SETTLING(안정화)이면
+            c->settle_ticks++;      // 기다린 tick 수 +1
+            printf("  [judge] 안정화 대기... (%d tick)\n", c->settle_ticks);
+            if (c->settle_ticks >= 2) {      // 2 tick 이상 기다렸으면
+                c->state = STATE_SORT;       // → SORT(분류)로
+                c->settle_ticks = 0;         // 카운터 리셋(다음을 위해)
+                printf("  [judge] 안정화 완료 -> SORT\n");
+            }
+            break;
+
+        case STATE_SORT:            // 지금 SORT(분류)이면
+            c->state = STATE_COMPLETE;       // → 분류 끝, COMPLETE로
+            printf("  [judge] 분류 완료 -> COMPLETE\n");
+            break;
+
         default:                    // 그 외 상태 (아직 로직 없음)
             printf("  [judge] (%s: 대기 중)\n", state_name(c->state));
             break;
@@ -94,7 +118,14 @@ void write_outputs(Conveyor *c) {
     } else {
         c->motor = 0;               // 그 외 → 모터 OFF
     }
-    printf("  [write] motor=%d\n", c->motor);
+
+    if (c->state == STATE_SORT) {
+        c->cylinder = 1;            // 분류 중 → 실린더로 밀기
+    } else {
+        c->cylinder = 0;            // 그 외 → 실린더 들임
+    }
+
+    printf("  [write] motor=%d, cylinder=%d\n", c->motor, c->cylinder);
 }
 
 /* ── 1 tick = 스캔 사이클 한 바퀴 ──
@@ -112,13 +143,16 @@ int main(void) {
     // ── 초기화: 변수는 만들면 꼭 초기값을 넣는다 (쓰레기값 방지) ──
     c.state = STATE_IDLE;
     c.motor = 0;
+    c.cylinder = 0;
     c.error_code = 0;
     c.product_sensor = 0;
     c.start_button = 0;
+    c.position_sensor = 0;
+    c.settle_ticks = 0;
     char cmd[20];          // 사용자가 친 명령을 담을 글자 상자
 
-    printf("=== Conveyor Control Simulator (Day 2) ===\n");
-    printf("commands: product_on, tick, status, exit\n");
+    printf("=== Conveyor Control Simulator (Day 3) ===\n");
+    printf("commands: product_on, position_on, tick, reset, status, exit\n");
 
     // ── 명령 입력 루프 ──
     while (1) {                       // 무한 반복 (exit 만나면 빠져나감)
@@ -131,8 +165,17 @@ int main(void) {
         } else if (strcmp(cmd, "product_on") == 0) {
             c.product_sensor = 1;     // 입구에 제품 투입 = 센서 ON
             printf("제품 투입됨 (product_sensor=1)\n");
+        } else if (strcmp(cmd, "position_on") == 0) {
+            c.position_sensor = 1;    // 제품이 목표 위치 도착 = 위치센서 ON
+            printf("위치 도착 (position_sensor=1)\n");
         } else if (strcmp(cmd, "tick") == 0) {
             run_tick(&c);             // 스캔 사이클 한 바퀴 실행
+        } else if (strcmp(cmd, "reset") == 0) {
+            c.state = STATE_IDLE;     // 상태를 대기로 되돌림
+            c.product_sensor = 0;     // 센서/카운터 청소 → 다음 제품 준비
+            c.position_sensor = 0;
+            c.settle_ticks = 0;
+            printf("리셋됨 -> IDLE\n");
         } else if (strcmp(cmd, "exit") == 0) {
             printf("bye.\n");
             break;                    // 루프 탈출 → 프로그램 종료
